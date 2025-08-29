@@ -1,93 +1,126 @@
 import os
 import time
+import glob
 import pandas as pd
 import streamlit as st
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 
-# Paths
-download_path = os.path.join(os.getcwd(), "data")
-os.makedirs(download_path, exist_ok=True)
+# Streamlit app title
+st.title("Missouri Show Me Cash Data Downloader & Cleaner")
 
-final_filename = "ShowMeCash.xlsx"
-final_path = os.path.join(download_path, final_filename)
-cleaned_path = os.path.join(download_path, "showmecash-winning-numbers-cleaned.xlsx")
+st.markdown("""
+### Instructions:
+1. Click the button below to download the latest **Show Me Cash Excel file** from the Missouri Lottery website.  
+2. The file will automatically be renamed to `ShowMeCash.xlsx` in the `data/` folder.  
+3. The data will be cleaned (header fixed, extra rows removed).  
+4. You can download the cleaned version directly from Streamlit.  
 
-# ChromeDriver path
-webdriver_path = r"C:\Users\vin\Downloads\chromedriver.exe"
+🔗 [Source: Missouri Lottery Show Me Cash](https://www.molottery.com/game/show-me-cash)
+""")
 
-# URL
-url = "https://www.molottery.com/show-me-cash/past-winning-numbers.jsp"
+# Folder where downloaded + cleaned files will be stored
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
 
 def download_file():
+    """Download the Show Me Cash Excel file using Selenium headless Chrome."""
+    url = "https://www.molottery.com/game/show-me-cash"
+    download_dir = os.path.abspath(DATA_DIR)
+
+    # Configure Chrome options
     chrome_options = Options()
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
     chrome_options.add_experimental_option("prefs", {
-        "download.default_directory": download_path,
+        "download.default_directory": download_dir,
         "download.prompt_for_download": False,
         "download.directory_upgrade": True,
         "safebrowsing.enabled": True
     })
-    chrome_options.add_argument("--headless")  # remove if you want to see the browser
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
 
-    service = Service(webdriver_path)
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     driver.get(url)
+
+    # Click the download button (Excel link)
     try:
-        download_link = driver.find_element(By.ID, "excelDl")
-        download_link.click()
-        st.info("Download initiated...")
-        time.sleep(10)  # wait for download
-        driver.quit()
+        download_button = driver.find_element("xpath", "//a[contains(@href, 'xlsx')]")
+        download_button.click()
     except Exception as e:
         st.error(f"Download failed: {e}")
         driver.quit()
         return None
 
-    # Find latest downloaded file
-    files = [f for f in os.listdir(download_path) if f.endswith('.xlsx')]
-    files.sort(key=lambda f: os.path.getctime(os.path.join(download_path, f)), reverse=True)
-    if not files:
-        st.error("No file found in download folder.")
+    # Wait for file to appear
+    downloaded_file = None
+    timeout = 30  # seconds
+    start_time = time.time()
+
+    while time.time() - start_time < timeout:
+        files = glob.glob(os.path.join(download_dir, "*.xlsx"))
+        if files:
+            latest_file = max(files, key=os.path.getctime)
+
+            # Check if Chrome is still writing (.crdownload present)
+            if not latest_file.endswith(".crdownload"):
+                downloaded_file = latest_file
+                break
+        time.sleep(1)
+
+    driver.quit()
+
+    if not downloaded_file:
+        st.error("Download did not complete in time.")
         return None
 
-    latest_file = os.path.join(download_path, files[0])
-    os.rename(latest_file, final_path)
+    # Final renamed file path
+    final_path = os.path.join(download_dir, "ShowMeCash.xlsx")
+
+    # Remove old file if it exists
+    if os.path.exists(final_path):
+        os.remove(final_path)
+
+    # Rename safely
+    os.rename(downloaded_file, final_path)
     return final_path
 
-def process_file(file_path):
-    try:
-        df = pd.read_excel(file_path)
-        df = df.iloc[1:]
-        df = df.iloc[:, :6]
-        df.columns = ['Draw Date', 'Draw Time', 'Numbers As Drawn', 'Numbers In Order', 'Jackpot', 'Winners']
-        df.to_excel(cleaned_path, index=False)
-        st.success(f"Cleaned file saved to: {cleaned_path}")
-        return df
-    except Exception as e:
-        st.error(f"Error processing file: {e}")
-        return None
 
-# --- Streamlit UI ---
-st.title("Missouri Show Me Cash Downloader (Selenium Version)")
+def clean_data(file_path):
+    """Clean the downloaded Show Me Cash Excel file."""
+    df = pd.read_excel(file_path, header=None)
 
-if st.button("Download & Clean Latest File"):
-    st.info("Downloading file...")
-    file_path = download_file()
+    # Drop first header row
+    df = df.drop(index=0)
+
+    # Keep first 6 columns
+    df = df.iloc[:, :6]
+
+    # Rename columns
+    df.columns = ["Draw Date", "Draw Time", "Numbers As Drawn", 
+                  "Numbers In Order", "Jackpot", "Winners"]
+
+    # Save cleaned version
+    cleaned_path = os.path.join(DATA_DIR, "showmecash-winning-numbers-cleaned.xlsx")
+    df.to_excel(cleaned_path, index=False)
+
+    return df, cleaned_path
+
+
+# Streamlit button
+if st.button("Download & Clean Show Me Cash Data"):
+    with st.spinner("Downloading... please wait"):
+        file_path = download_file()
+
     if file_path:
-        st.info("Processing file...")
-        df = process_file(file_path)
-        if df is not None:
-            st.dataframe(df)
-            # Download button
-            with open(cleaned_path, "rb") as f:
-                st.download_button(
-                    label="Download Cleaned Excel",
-                    data=f,
-                    file_name="showmecash-winning-numbers-cleaned.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+        with st.spinner("Cleaning data..."):
+            df, cleaned_file = clean_data(file_path)
+
+        st.success("Data downloaded and cleaned successfully!")
+        st.dataframe(df.head())
+
+        # Add download button
+        with open(cleaned_file, "rb") as f:
+            st.download_button("⬇ Download Cleaned Excel", f, file_name="showmecash-winning-numbers-cleaned.xlsx")
