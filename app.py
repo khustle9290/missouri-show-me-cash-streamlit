@@ -1,104 +1,104 @@
 import os
-import time
+import shutil
+import requests
 import pandas as pd
 import streamlit as st
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from selenium.webdriver.common.by import By
-from selenium.webdriver.chrome.options import Options
 
-# Paths
-download_path = os.path.join(os.getcwd(), "data")
-os.makedirs(download_path, exist_ok=True)
+# ===============================================================
+# Missouri Show Me Cash Streamlit App
+# ---------------------------------------------------------------
+# Instructions:
+# 1. This app downloads the official Missouri Lottery "Show Me Cash"
+#    past winning numbers file directly from the lottery website.
+# 2. The file is saved into a local "data" folder.
+# 3. The app will then load and display the historical data.
+# 4. Each time you run the app, it re-downloads the latest version.
+#
+# Run the app:
+#   streamlit run app.py
+# ===============================================================
 
-final_filename = "ShowMeCash.xlsx"
-final_path = os.path.join(download_path, final_filename)
-cleaned_path = os.path.join(download_path, "showmecash-winning-numbers-cleaned.xlsx")
+DOWNLOAD_URL = "https://www.molottery.com/sites/default/files/DrawGamePastWinningNumbers/ShowMeCashPastWinningNumbers.xlsx"
+SAVE_DIR = "data"
+FINAL_FILENAME = "showmecash-winning-numbers-cleaned.xlsx"
 
-# ChromeDriver path
-webdriver_path = r"C:\Users\vin\Downloads\chromedriver.exe"
-
-# URL
-url = "https://www.molottery.com/show-me-cash/past-winning-numbers.jsp"
 
 def download_file():
-    chrome_options = Options()
-    chrome_options.add_experimental_option("prefs", {
-        "download.default_directory": download_path,
-        "download.prompt_for_download": False,
-        "download.directory_upgrade": True,
-        "safebrowsing.enabled": True
-    })
-    chrome_options.add_argument("--headless")  # remove if you want to see the browser
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-
-    service = Service(webdriver_path)
-    driver = webdriver.Chrome(service=service, options=chrome_options)
-
-    driver.get(url)
+    """Download the Show Me Cash Excel file and move it into the data folder safely."""
     try:
-        download_link = driver.find_element(By.ID, "excelDl")
-        download_link.click()
-        st.info("Download initiated...")
-        time.sleep(10)  # wait for download
-        driver.quit()
+        os.makedirs(SAVE_DIR, exist_ok=True)
+
+        # Download raw file
+        response = requests.get(DOWNLOAD_URL, timeout=15)
+        response.raise_for_status()  # raise error if download failed
+
+        raw_path = os.path.join(SAVE_DIR, "showmecash-latest.xlsx")
+        with open(raw_path, "wb") as f:
+            f.write(response.content)
+
+        # Define final cleaned path
+        final_path = os.path.join(SAVE_DIR, FINAL_FILENAME)
+
+        # Move file safely (avoids Windows rename issues)
+        shutil.move(raw_path, final_path)
+
+        return final_path
+
     except Exception as e:
-        st.error(f"Download failed: {e}")
-        driver.quit()
+        st.error(f"❌ File download failed: {e}")
         return None
 
-    # Find latest downloaded file
-    files = [f for f in os.listdir(download_path) if f.endswith('.xlsx')]
-    files.sort(key=lambda f: os.path.getctime(os.path.join(download_path, f)), reverse=True)
-    if not files:
-        st.error("No file found in download folder.")
-        return None
 
-    latest_file = os.path.join(download_path, files[0])
-    os.rename(latest_file, final_path)
-    return final_path
-
-def process_file(file_path):
+def load_data(file_path):
+    """Load the Excel file into a Pandas DataFrame."""
     try:
         df = pd.read_excel(file_path)
-        df = df.iloc[1:]
-        df = df.iloc[:, :6]
-        df.columns = ['Draw Date', 'Draw Time', 'Numbers As Drawn', 'Numbers In Order', 'Jackpot', 'Winners']
-        df.to_excel(cleaned_path, index=False)
-        st.success(f"Cleaned file saved to: {cleaned_path}")
+
+        # Normalize column names (sometimes the file may have slight changes)
+        df.columns = [col.strip() for col in df.columns]
+
         return df
     except Exception as e:
-        st.error(f"Error processing file: {e}")
+        st.error(f"❌ Failed to load data from Excel: {e}")
         return None
 
-# --- Streamlit UI ---
-st.title("🎰 Missouri Show Me Cash Downloader (Selenium Version)")
 
-st.markdown("""
-### 📖 How to Use
-1. Click the **Download & Clean Latest File** button below.  
-2. The program will fetch the latest Show Me Cash Excel file from the [Missouri Lottery Website](https://www.molottery.com/show-me-cash/past-winning-numbers.jsp).  
-3. The file will be automatically renamed to `ShowMeCash.xlsx`.  
-4. A cleaned version will be saved as `showmecash-winning-numbers-cleaned.xlsx` inside the **data/** folder.  
-5. You can preview the cleaned results directly in this app.  
-6. Optionally, click **Download Cleaned Excel** to save it to your computer.  
----
-""")
+# ======================
+# Streamlit App UI
+# ======================
+st.set_page_config(page_title="Missouri Show Me Cash Analyzer", layout="wide")
+st.title("🎰 Missouri Show Me Cash - Winning Numbers")
 
-if st.button("⬇️ Download & Clean Latest File"):
-    st.info("Downloading file...")
-    file_path = download_file()
-    if file_path:
-        st.info("Processing file...")
-        df = process_file(file_path)
-        if df is not None:
-            st.dataframe(df)
-            # Download button
-            with open(cleaned_path, "rb") as f:
-                st.download_button(
-                    label="📥 Download Cleaned Excel",
-                    data=f,
-                    file_name="showmecash-winning-numbers-cleaned.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+st.write("This app downloads the **latest historical Show Me Cash winning numbers** "
+         "directly from the Missouri Lottery website and displays them here.")
+
+# Download + load
+file_path = download_file()
+if file_path:
+    df = load_data(file_path)
+
+    if df is not None:
+        st.success("✅ Data downloaded and loaded successfully!")
+
+        # Show preview
+        st.subheader("Data Preview")
+        st.dataframe(df.head(20))
+
+        # Basic stats
+        st.subheader("Quick Stats")
+        st.write(f"Total Draws: **{len(df)}**")
+        st.write("Date Range: **{} → {}**".format(df['Draw Date'].min(), df['Draw Date'].max()))
+
+        # Frequency table for numbers
+        number_cols = [col for col in df.columns if col.startswith("Num")]
+        if number_cols:
+            all_numbers = df[number_cols].values.flatten()
+            freq = pd.Series(all_numbers).value_counts().sort_index()
+
+            st.subheader("Number Frequencies")
+            st.bar_chart(freq)
+
+    else:
+        st.warning("⚠️ No data to display.")
+else:
+    st.warning("⚠️ Could not download the file. Check your internet connection.")
