@@ -1,104 +1,126 @@
 import os
-import shutil
-import requests
+import time
+import glob
 import pandas as pd
 import streamlit as st
+from selenium import webdriver
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
+from webdriver_manager.chrome import ChromeDriverManager
 
-# ===============================================================
-# Missouri Show Me Cash Streamlit App
-# ---------------------------------------------------------------
-# Instructions:
-# 1. This app downloads the official Missouri Lottery "Show Me Cash"
-#    past winning numbers file directly from the lottery website.
-# 2. The file is saved into a local "data" folder.
-# 3. The app will then load and display the historical data.
-# 4. Each time you run the app, it re-downloads the latest version.
-#
-# Run the app:
-#   streamlit run app.py
-# ===============================================================
+# Streamlit app title
+st.title("Missouri Show Me Cash Data Downloader & Cleaner")
 
-DOWNLOAD_URL = "https://www.molottery.com/sites/default/files/DrawGamePastWinningNumbers/ShowMeCashPastWinningNumbers.xlsx"
-SAVE_DIR = "data"
-FINAL_FILENAME = "showmecash-winning-numbers-cleaned.xlsx"
+st.markdown("""
+### Instructions:
+1. Click the button below to download the latest **Show Me Cash Excel file** from the Missouri Lottery website.  
+2. The file will automatically be renamed to `ShowMeCash.xlsx` in the `data/` folder.  
+3. The data will be cleaned (header fixed, extra rows removed).  
+4. You can download the cleaned version directly from Streamlit.  
 
+🔗 [Source: Missouri Lottery Show Me Cash](https://www.molottery.com/game/show-me-cash)
+""")
+
+# Folder where downloaded + cleaned files will be stored
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
 
 def download_file():
-    """Download the Show Me Cash Excel file and move it into the data folder safely."""
+    """Download the Show Me Cash Excel file using Selenium headless Chrome."""
+    url = "https://www.molottery.com/game/show-me-cash"
+    download_dir = os.path.abspath(DATA_DIR)
+
+    # Configure Chrome options
+    chrome_options = Options()
+    chrome_options.add_argument("--headless=new")
+    chrome_options.add_argument("--disable-gpu")
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_experimental_option("prefs", {
+        "download.default_directory": download_dir,
+        "download.prompt_for_download": False,
+        "download.directory_upgrade": True,
+        "safebrowsing.enabled": True
+    })
+
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    driver.get(url)
+
+    # Click the download button (Excel link)
     try:
-        os.makedirs(SAVE_DIR, exist_ok=True)
-
-        # Download raw file
-        response = requests.get(DOWNLOAD_URL, timeout=15)
-        response.raise_for_status()  # raise error if download failed
-
-        raw_path = os.path.join(SAVE_DIR, "showmecash-latest.xlsx")
-        with open(raw_path, "wb") as f:
-            f.write(response.content)
-
-        # Define final cleaned path
-        final_path = os.path.join(SAVE_DIR, FINAL_FILENAME)
-
-        # Move file safely (avoids Windows rename issues)
-        shutil.move(raw_path, final_path)
-
-        return final_path
-
+        download_button = driver.find_element("xpath", "//a[contains(@href, 'xlsx')]")
+        download_button.click()
     except Exception as e:
-        st.error(f"❌ File download failed: {e}")
+        st.error(f"Download failed: {e}")
+        driver.quit()
         return None
 
+    # Wait for file to appear
+    downloaded_file = None
+    timeout = 30  # seconds
+    start_time = time.time()
 
-def load_data(file_path):
-    """Load the Excel file into a Pandas DataFrame."""
-    try:
-        df = pd.read_excel(file_path)
+    while time.time() - start_time < timeout:
+        files = glob.glob(os.path.join(download_dir, "*.xlsx"))
+        if files:
+            latest_file = max(files, key=os.path.getctime)
 
-        # Normalize column names (sometimes the file may have slight changes)
-        df.columns = [col.strip() for col in df.columns]
+            # Check if Chrome is still writing (.crdownload present)
+            if not latest_file.endswith(".crdownload"):
+                downloaded_file = latest_file
+                break
+        time.sleep(1)
 
-        return df
-    except Exception as e:
-        st.error(f"❌ Failed to load data from Excel: {e}")
+    driver.quit()
+
+    if not downloaded_file:
+        st.error("Download did not complete in time.")
         return None
 
+    # Final renamed file path
+    final_path = os.path.join(download_dir, "ShowMeCash.xlsx")
 
-# ======================
-# Streamlit App UI
-# ======================
-st.set_page_config(page_title="Missouri Show Me Cash Analyzer", layout="wide")
-st.title("🎰 Missouri Show Me Cash - Winning Numbers")
+    # Remove old file if it exists
+    if os.path.exists(final_path):
+        os.remove(final_path)
 
-st.write("This app downloads the **latest historical Show Me Cash winning numbers** "
-         "directly from the Missouri Lottery website and displays them here.")
+    # Rename safely
+    os.rename(downloaded_file, final_path)
+    return final_path
 
-# Download + load
-file_path = download_file()
-if file_path:
-    df = load_data(file_path)
 
-    if df is not None:
-        st.success("✅ Data downloaded and loaded successfully!")
+def clean_data(file_path):
+    """Clean the downloaded Show Me Cash Excel file."""
+    df = pd.read_excel(file_path, header=None)
 
-        # Show preview
-        st.subheader("Data Preview")
-        st.dataframe(df.head(20))
+    # Drop first header row
+    df = df.drop(index=0)
 
-        # Basic stats
-        st.subheader("Quick Stats")
-        st.write(f"Total Draws: **{len(df)}**")
-        st.write("Date Range: **{} → {}**".format(df['Draw Date'].min(), df['Draw Date'].max()))
+    # Keep first 6 columns
+    df = df.iloc[:, :6]
 
-        # Frequency table for numbers
-        number_cols = [col for col in df.columns if col.startswith("Num")]
-        if number_cols:
-            all_numbers = df[number_cols].values.flatten()
-            freq = pd.Series(all_numbers).value_counts().sort_index()
+    # Rename columns
+    df.columns = ["Draw Date", "Draw Time", "Numbers As Drawn", 
+                  "Numbers In Order", "Jackpot", "Winners"]
 
-            st.subheader("Number Frequencies")
-            st.bar_chart(freq)
+    # Save cleaned version
+    cleaned_path = os.path.join(DATA_DIR, "showmecash-winning-numbers-cleaned.xlsx")
+    df.to_excel(cleaned_path, index=False)
 
-    else:
-        st.warning("⚠️ No data to display.")
-else:
-    st.warning("⚠️ Could not download the file. Check your internet connection.")
+    return df, cleaned_path
+
+
+# Streamlit button
+if st.button("Download & Clean Show Me Cash Data"):
+    with st.spinner("Downloading... please wait"):
+        file_path = download_file()
+
+    if file_path:
+        with st.spinner("Cleaning data..."):
+            df, cleaned_file = clean_data(file_path)
+
+        st.success("Data downloaded and cleaned successfully!")
+        st.dataframe(df.head())
+
+        # Add download button
+        with open(cleaned_file, "rb") as f:
+            st.download_button("⬇ Download Cleaned Excel", f, file_name="showmecash-winning-numbers-cleaned.xlsx")
