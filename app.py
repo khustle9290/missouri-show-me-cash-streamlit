@@ -73,9 +73,20 @@ def process_file(file_path):
         return None
 
 # --- Streamlit UI ---
-st.title("Missouri Show Me Cash Downloader (Selenium Version)")
+st.title("🎰 Missouri Show Me Cash Downloader (Selenium Version)")
 
-if st.button("Download & Clean Latest File"):
+st.markdown("""
+### 📖 How to Use
+1. Click the **Download & Clean Latest File** button below.  
+2. The program will fetch the latest Show Me Cash Excel file from the [Missouri Lottery Website](https://www.molottery.com/show-me-cash/past-winning-numbers.jsp).  
+3. The file will be automatically renamed to `ShowMeCash.xlsx`.  
+4. A cleaned version will be saved as `showmecash-winning-numbers-cleaned.xlsx` inside the **data/** folder.  
+5. You can preview the cleaned results directly in this app.  
+6. Optionally, click **Download Cleaned Excel** to save it to your computer.  
+---
+""")
+
+if st.button("⬇️ Download & Clean Latest File"):
     st.info("Downloading file...")
     file_path = download_file()
     if file_path:
@@ -86,7 +97,7 @@ if st.button("Download & Clean Latest File"):
             # Download button
             with open(cleaned_path, "rb") as f:
                 st.download_button(
-                    label="Download Cleaned Excel",
+                    label="📥 Download Cleaned Excel",
                     data=f,
                     file_name="showmecash-winning-numbers-cleaned.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
