@@ -15,7 +15,7 @@ final_filename = "ShowMeCash.xlsx"
 final_path = os.path.join(download_path, final_filename)
 cleaned_path = os.path.join(download_path, "showmecash-winning-numbers-cleaned.xlsx")
 
-# ChromeDriver path
+# ChromeDriver path (update this if your chromedriver.exe is in another location)
 webdriver_path = r"C:\Users\vin\Downloads\chromedriver.exe"
 
 # URL
@@ -73,9 +73,21 @@ def process_file(file_path):
         return None
 
 # --- Streamlit UI ---
-st.title("Missouri Show Me Cash Downloader (Selenium Version)")
+st.title("🎰 Missouri Show Me Cash Downloader (Selenium Version)")
 
-if st.button("Download & Clean Latest File"):
+st.markdown("""
+### 📖 How to Use
+1. Make sure you have **Google Chrome** installed and that your `chromedriver.exe` path is correct.  
+2. Click the **Download & Clean Latest File** button below.  
+3. The program will fetch the latest Show Me Cash Excel file from the [Missouri Lottery Website](https://www.molottery.com/show-me-cash/past-winning-numbers.jsp).  
+4. The file will be automatically renamed to `ShowMeCash.xlsx` inside the **data/** folder.  
+5. A cleaned version will be saved as `showmecash-winning-numbers-cleaned.xlsx`.  
+6. You can preview the cleaned results directly in this app.  
+7. Optionally, click **Download Cleaned Excel** to save it to your computer.  
+---
+""")
+
+if st.button("⬇️ Download & Clean Latest File"):
     st.info("Downloading file...")
     file_path = download_file()
     if file_path:
@@ -86,7 +98,7 @@ if st.button("Download & Clean Latest File"):
             # Download button
             with open(cleaned_path, "rb") as f:
                 st.download_button(
-                    label="Download Cleaned Excel",
+                    label="📥 Download Cleaned Excel",
                     data=f,
                     file_name="showmecash-winning-numbers-cleaned.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
