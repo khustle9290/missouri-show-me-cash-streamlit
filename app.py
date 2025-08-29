@@ -15,13 +15,19 @@ final_filename = "ShowMeCash.xlsx"
 final_path = os.path.join(download_path, final_filename)
 cleaned_path = os.path.join(download_path, "showmecash-winning-numbers-cleaned.xlsx")
 
-# ChromeDriver path (update this if your chromedriver.exe is in another location)
+# ChromeDriver path
 webdriver_path = r"C:\Users\vin\Downloads\chromedriver.exe"
 
 # URL
 url = "https://www.molottery.com/show-me-cash/past-winning-numbers.jsp"
 
 def download_file():
+    """
+    Downloads the latest Show Me Cash Excel file using Selenium.
+    
+    ⚠ IMPORTANT: Before running this again, delete any existing ShowMeCash.xlsx
+    or showmecash-winning-numbers-cleaned.xlsx in the 'data/' folder to avoid errors.
+    """
     chrome_options = Options()
     chrome_options.add_experimental_option("prefs", {
         "download.default_directory": download_path,
@@ -47,6 +53,12 @@ def download_file():
         st.error(f"Download failed: {e}")
         driver.quit()
         return None
+
+    # Check for existing files and remove them to avoid os.rename errors
+    if os.path.exists(final_path):
+        os.remove(final_path)
+    if os.path.exists(cleaned_path):
+        os.remove(cleaned_path)
 
     # Find latest downloaded file
     files = [f for f in os.listdir(download_path) if f.endswith('.xlsx')]
@@ -77,13 +89,11 @@ st.title("🎰 Missouri Show Me Cash Downloader (Selenium Version)")
 
 st.markdown("""
 ### 📖 How to Use
-1. Make sure you have **Google Chrome** installed and that your `chromedriver.exe` path is correct.  
-2. Click the **Download & Clean Latest File** button below.  
-3. The program will fetch the latest Show Me Cash Excel file from the [Missouri Lottery Website](https://www.molottery.com/show-me-cash/past-winning-numbers.jsp).  
-4. The file will be automatically renamed to `ShowMeCash.xlsx` inside the **data/** folder.  
-5. A cleaned version will be saved as `showmecash-winning-numbers-cleaned.xlsx`.  
-6. You can preview the cleaned results directly in this app.  
-7. Optionally, click **Download Cleaned Excel** to save it to your computer.  
+1. Before downloading, delete any old `ShowMeCash.xlsx` or `showmecash-winning-numbers-cleaned.xlsx` in the **data/** folder.  
+2. Click the **Download & Clean Latest File** button.  
+3. The file will be downloaded from the [Missouri Lottery Website](https://www.molottery.com/show-me-cash/past-winning-numbers.jsp).  
+4. Preview the cleaned data directly in this app.  
+5. Optionally, click **Download Cleaned Excel** to save it to your computer.  
 ---
 """)
 
