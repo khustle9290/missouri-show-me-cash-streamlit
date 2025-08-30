@@ -1,68 +1,73 @@
-import streamlit as st
+import os
 import pandas as pd
+import streamlit as st
 import requests
-from bs4 import BeautifulSoup
+
+# --- Paths ---
+download_path = os.path.join(os.getcwd(), "data")
+os.makedirs(download_path, exist_ok=True)
+
+final_filename = "ShowMeCash.xlsx"
+final_path = os.path.join(download_path, final_filename)
+cleaned_path = os.path.join(download_path, "showmecash-winning-numbers-cleaned.xlsx")
+
+# --- URL ---
+url = "https://www.molottery.com/export/sites/missouri/Games/show-me-cash/ShowMeCashPastWinningNumbers.xlsx"
+
+# --- Functions ---
+def download_file():
+    # Delete old files if exist
+    if os.path.exists(final_path):
+        os.remove(final_path)
+    if os.path.exists(cleaned_path):
+        os.remove(cleaned_path)
+
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        with open(final_path, "wb") as f:
+            f.write(response.content)
+        st.success(f"Downloaded latest file to {final_path}")
+        return final_path
+    except Exception as e:
+        st.error(f"Download failed: {e}")
+        return None
+
+def process_file(file_path):
+    try:
+        df = pd.read_excel(file_path)
+        df = df.iloc[1:]           # remove first row
+        df = df.iloc[:, :6]        # first 6 columns
+        df.columns = ['Draw Date', 'Draw Time', 'Numbers As Drawn', 'Numbers In Order', 'Jackpot', 'Winners']
+        df.to_excel(cleaned_path, index=False)
+        st.success(f"Cleaned file saved to: {cleaned_path}")
+        return df
+    except Exception as e:
+        st.error(f"Error processing file: {e}")
+        return None
 
 # --- Streamlit UI ---
-st.title("Missouri Show Me Cash - Data Downloader")
+st.title("🎰 Missouri Show Me Cash Downloader (Requests Version)")
 
-st.write("This app downloads the latest Show Me Cash numbers from [lotteryusa.com](https://www.lotteryusa.com/missouri/)")
+st.markdown("""
+### 📖 Instructions
+1. Old files will be automatically deleted before downloading a new file.
+2. Click the **Download & Clean Latest File** button.
+3. Preview the cleaned data in the table.
+4. Optionally, click **Download Cleaned Excel** to save it locally.
+---
+""")
 
-# --- Scraping function ---
-def scrape_show_me_cash():
-    url = "https://www.lotteryusa.com/missouri/show-me-cash/"
-    response = requests.get(url)
-    soup = BeautifulSoup(response.text, "html.parser")
-
-    data = []
-    rows = soup.select("li.draw-result")
-
-    for row in rows:
-        date_elem = row.select_one(".draw-date")
-        nums = row.select(".draw-result li")
-
-        if not date_elem or not nums:
-            continue
-
-        draw_date = date_elem.get_text(strip=True)
-        numbers = [n.get_text(strip=True) for n in nums[:5]]
-
-        if len(numbers) == 5:
-            data.append([draw_date] + numbers)
-
-    df = pd.DataFrame(data, columns=["Draw Date", "Num1", "Num2", "Num3", "Num4", "Num5"])
-    return df
-
-# --- Main logic ---
-if st.button("Fetch Latest Data"):
-    df = scrape_show_me_cash()
-    
-    if not df.empty:
-        st.success("✅ Latest Show Me Cash data downloaded!")
-        st.dataframe(df)
-
-        # Add sum column
-        df["Sum"] = df[["Num1", "Num2", "Num3", "Num4", "Num5"]].astype(int).sum(axis=1)
-
-        # Allow download as Excel
-        excel_file = "show_me_cash_data.xlsx"
-        df.to_excel(excel_file, index=False)
-
-        with open(excel_file, "rb") as f:
-            st.download_button("📥 Download Excel File", f, file_name=excel_file)
-    else:
-        st.error("⚠️ No data found. Website may have changed.")
-
-# --- Example of file format for uploads ---
-st.subheader("📂 Example of File Format")
-st.write("If you want to upload your own dataset, it should look like this:")
-
-example_data = {
-    "Draw Date": ["25-Aug-25", "24-Aug-25", "23-Aug-25"],
-    "Num1": [19, 4, 8],
-    "Num2": [24, 6, 11],
-    "Num3": [27, 10, 29],
-    "Num4": [33, 13, 32],
-    "Num5": [35, 29, 38],
-}
-st.dataframe(pd.DataFrame(example_data))
+if st.button("⬇️ Download & Clean Latest File"):
+    file_path = download_file()
+    if file_path:
+        df = process_file(file_path)
+        if df is not None:
+            st.dataframe(df)
+            with open(cleaned_path, "rb") as f:
+                st.download_button(
+                    label="📥 Download Cleaned Excel",
+                    data=f,
+                    file_name="showmecash-winning-numbers-cleaned.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
